@@ -59,6 +59,8 @@ runs:
         RELEASE_NAME="${{ inputs.release-name }}-${{ inputs.service-name }}"
         STACK_NAME="${{ inputs.release-name }}-${{ inputs.service-name }}"
         FOUND_RESOURCES=false
+        HELM_DELETED=false
+        CFN_DELETED=false
 
         # Uninstall Helm release
         echo "Checking for Helm release: $RELEASE_NAME"
@@ -67,6 +69,7 @@ runs:
           helm uninstall "$RELEASE_NAME" -n ${{ inputs.namespace }}
           echo "Successfully uninstalled $RELEASE_NAME"
           FOUND_RESOURCES=true
+          HELM_DELETED=true
         else
           echo "Helm release $RELEASE_NAME not found"
         fi
@@ -80,6 +83,7 @@ runs:
           aws cloudformation wait stack-delete-complete --stack-name "$STACK_NAME" --region ${{ inputs.aws-region }}
           echo "Successfully deleted CloudFormation stack: $STACK_NAME"
           FOUND_RESOURCES=true
+          CFN_DELETED=true
         else
           echo "CloudFormation stack $STACK_NAME not found"
         fi
@@ -92,4 +96,32 @@ runs:
         fi
 
         echo "status=success" >> $GITHUB_OUTPUT
+        echo "helm-deleted=$HELM_DELETED" >> $GITHUB_OUTPUT
+        echo "cfn-deleted=$CFN_DELETED" >> $GITHUB_OUTPUT
+        echo "resource-name=$RELEASE_NAME" >> $GITHUB_OUTPUT
+
+    - name: Generate cleanup summary
+      shell: bash
+      run: |
+        cat >> $GITHUB_STEP_SUMMARY << 'EOF'
+        ## Dev Stack Cleanup Complete
+
+        **Release:** `${{ inputs.release-name }}`  
+        **Service:** `${{ inputs.service-name }}`  
+        **Resource Name:** `${{ steps.cleanup.outputs.resource-name }}`
+
+        ### Resources Cleaned Up
+
+        | Resource Type | Status |
+        |---------------|--------|
+        | Helm Release (namespace: `${{ inputs.namespace }}`) | ${{ steps.cleanup.outputs.helm-deleted == 'true' && 'Deleted' || 'Not Found' }} |
+        | CloudFormation Stack (region: `${{ inputs.aws-region }}`) | ${{ steps.cleanup.outputs.cfn-deleted == 'true' && 'Deleted' || 'Not Found' }} |
+
+        ### Environment Details
+
+        - **EKS Cluster:** `${{ inputs.eks-cluster }}`
+        - **AWS Account:** `${{ inputs.aws-account }}`
+        - **AWS Region:** `${{ inputs.aws-region }}`
+        - **Namespace:** `${{ inputs.namespace }}`
+        EOF
 
