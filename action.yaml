@@ -1,0 +1,95 @@
+name: 'Cleanup Dev Stack'
+description: 'Cleanup a dev environment by removing Helm release and CloudFormation stack'
+
+inputs:
+  release-name:
+    description: 'Release name (must start with dev-)'
+    required: true
+  service-name:
+    description: 'Service name (e.g., hello-k8s)'
+    required: true
+  namespace:
+    description: 'Kubernetes namespace'
+    required: false
+    default: 'bisnow-apps'
+  eks-cluster:
+    description: 'EKS cluster name'
+    required: false
+    default: 'bisnow-non-prod-eks'
+  aws-account:
+    description: 'AWS account for role assumption'
+    required: false
+    default: 'bisnow'
+  aws-region:
+    description: 'AWS region'
+    required: false
+    default: 'us-east-1'
+
+outputs:
+  cleanup-status:
+    description: 'Status of cleanup operation'
+    value: ${{ steps.cleanup.outputs.status }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Validate release name starts with dev-
+      shell: bash
+      run: |
+        if [[ ! "${{ inputs.release-name }}" =~ ^dev- ]]; then
+          echo "Error: release-name must start with 'dev-' (e.g., dev-1, dev-23)"
+          exit 1
+        fi
+        echo "Release name '${{ inputs.release-name }}' is valid"
+
+    - name: Log into AWS
+      uses: bisnow/github-actions-assume-role-for-environment@v2.1
+      with:
+        aws-account: ${{ inputs.aws-account }}
+
+    - name: Configure kubectl
+      shell: bash
+      run: |
+        aws eks update-kubeconfig --name ${{ inputs.eks-cluster }} --region ${{ inputs.aws-region }}
+
+    - name: Cleanup resources
+      id: cleanup
+      shell: bash
+      run: |
+        RELEASE_NAME="${{ inputs.release-name }}-${{ inputs.service-name }}"
+        STACK_NAME="${{ inputs.release-name }}-${{ inputs.service-name }}"
+        FOUND_RESOURCES=false
+
+        # Uninstall Helm release
+        echo "Checking for Helm release: $RELEASE_NAME"
+        if helm status "$RELEASE_NAME" -n ${{ inputs.namespace }} > /dev/null 2>&1; then
+          echo "Uninstalling Helm release: $RELEASE_NAME"
+          helm uninstall "$RELEASE_NAME" -n ${{ inputs.namespace }}
+          echo "Successfully uninstalled $RELEASE_NAME"
+          FOUND_RESOURCES=true
+        else
+          echo "Helm release $RELEASE_NAME not found"
+        fi
+
+        # Delete CloudFormation stack
+        echo "Checking for CloudFormation stack: $STACK_NAME"
+        if aws cloudformation describe-stacks --stack-name "$STACK_NAME" --region ${{ inputs.aws-region }} > /dev/null 2>&1; then
+          echo "Deleting CloudFormation stack: $STACK_NAME"
+          aws cloudformation delete-stack --stack-name "$STACK_NAME" --region ${{ inputs.aws-region }}
+          echo "Waiting for stack deletion..."
+          aws cloudformation wait stack-delete-complete --stack-name "$STACK_NAME" --region ${{ inputs.aws-region }}
+          echo "Successfully deleted CloudFormation stack: $STACK_NAME"
+          FOUND_RESOURCES=true
+        else
+          echo "CloudFormation stack $STACK_NAME not found"
+        fi
+
+        # Fail if nothing was found
+        if [ "$FOUND_RESOURCES" = false ]; then
+          echo "Error: No resources found for ${{ inputs.release-name }}. Nothing to clean up."
+          echo "status=not-found" >> $GITHUB_OUTPUT
+          exit 1
+        fi
+
+        echo "status=success" >> $GITHUB_OUTPUT
+
