@@ -105,24 +105,11 @@ The action will fail if:
 - AWS authentication fails
 - Helm or CloudFormation operations fail
 
-## Prerequisites
+## Versioning
 
-- AWS credentials configured (via `bisnow/github-actions-assume-role-for-environment@v2.1`)
-- Helm installed in the runner environment
-- AWS CLI installed in the runner environment
-- kubectl installed in the runner environment
-- Appropriate permissions for EKS and CloudFormation operations
+This action uses rolling major version tags. You can pin to:
 
-## Security
+- A specific version: `@v3.1.0` (exact, never changes)
+- A major version: `@v3` (recommended, gets bug fixes and new features)
 
-- Only allows cleanup of resources prefixed with `dev-`
-- Uses AWS role assumption for secure credential management
-- No hardcoded credentials required
-
-## License
-
-[Add your license information]
-
-## Contributing
-
-[Add contribution guidelines]
+When a new semantic version tag (e.g., `v3.2.0`) is pushed, a GitHub Actions workflow automatically updates the corresponding major version tag (`v3`) to point to the new release.
